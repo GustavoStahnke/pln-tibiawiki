@@ -1,5 +1,3 @@
-# pln-tibiawiki
-
 # 🧙‍♂️ Projeto de Processamento de Linguagem Natural (PLN) - TibiaWiki Itens  
 
 Este repositório contém o código e os experimentos desenvolvidos para o trabalho da disciplina de **Processamento de Linguagem Natural (PLN)**, utilizando como base de dados a página de **Itens do TibiaWiki** ([link](https://www.tibiawiki.com.br/wiki/Itens)).  
