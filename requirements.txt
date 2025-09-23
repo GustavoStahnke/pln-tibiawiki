@@ -1,0 +1,5 @@
+selenium==4.25.0
+pandas==2.2.3
+beautifulsoup4==4.12.3
+nltk==3.9.1
+spacy==3.7.5
