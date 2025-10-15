@@ -17,3 +17,10 @@ O projeto tem como objetivo **coletar, estruturar e analisar informações de it
 * [pandas](https://pandas.pydata.org/)
 * [requests](https://docs.python-requests.org/)
 * [nltk](https://github.com/nltk/nltk)
+
+
+## 🛠️ Resumo do pipeline  
+- Coleta de dados (Scraping): get_items_links.py 
+- Extração + Pré-processamento: get_tibiaitens_info.py
+- Vetorização (TF-IDF): vectorizer_items.py
+- Análise/Exploração: analyze_items.py
