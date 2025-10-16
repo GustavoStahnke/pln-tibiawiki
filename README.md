@@ -21,6 +21,7 @@ O projeto tem como objetivo **coletar, estruturar e analisar informações de it
 
 ## 🛠️ Resumo do pipeline  
 - Coleta de dados (Scraping): get_items_links.py 
-- Extração + Pré-processamento: get_tibiaitens_info.py
+- Extração: get_tibiaitens_info.py
+- Pré-processamento: preprocess_csv.py
 - Vetorização (TF-IDF): vectorizer_items.py
 - Análise/Exploração: analyze_items.py
