@@ -19,7 +19,7 @@ O projeto tem como objetivo **coletar, estruturar e analisar informações de it
 * [nltk](https://github.com/nltk/nltk)
 
 
-## 🛠️ Resumo do pipeline  
+## 🛠️ Resumo do pipeline  (Passo a Passo)
 - Coleta de dados (Scraping): get_items_links.py 
 - Extração: get_tibiaitens_info.py
 - Pré-processamento: preprocess_csv.py
