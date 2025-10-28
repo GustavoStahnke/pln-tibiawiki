@@ -1,169 +1,225 @@
 """
-Vectorização TF-IDF para o CSV pré-processado do TibiaWiki.
+Vectorização para itens do TibiaWiki
+-----------------------------------------------------------------
+- create_bow_vectors
+- create_tfidf_vectors
+- create_sbert_embeddings
+- calculate_similarity_matrix
+- search_similar_documents
+- save_vectors
 
-Lê:   data/items_info_preprocessed.csv
-Usa:  coluna de texto escolhida (ex.: 'lemmas', 'stems', 'tokens_sem_stopwords', 'texto_normalizado')
-Gera: 
-  - data/data_vectorizer/tfidf_{field}.npz
-  - data/data_vectorizer/tfidf_vocab_{field}.json
-  - data/data_vectorizer/top_terms_global_{field}.csv
-  - data/data_vectorizer/top_terms_by_{group}_{field}.csv (se --group-by)
-  - data/data_vectorizer/feature_names_{field}.csv
+Adaptações ao dataset:
+- Lê um CSV com os itens (padrão: items_info_preprocessed.csv)
+- Usa a coluna "lemmas" por padrão para o corpus textual (fallback: "texto_normalizado")
+- Salva arquivos em um diretório de saída (padrão: data/data_analyze_vectorizer)
 
-Uso:
-  python vectorize_items.py --text-field lemmas --group-by Voc
+Requisitos:
+  pip install numpy pandas scikit-learn sentence-transformers
 """
 
-import os
-import json
 import argparse
+import json
+from pathlib import Path
 from typing import List, Tuple, Optional
 
 import numpy as np
 import pandas as pd
-from scipy import sparse
-from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.feature_extraction.text import CountVectorizer, TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
 
-# --------- Caminhos padrão ---------
-INPUT_CSV = os.path.join("data", "items_info_preprocessed.csv")
-OUT_DIR   = os.path.join("data", "data_vectorizer")
+# SBERT é importado sob demanda para permitir uso só quando necessário
+def _load_sbert(model_name: str = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"):
+    from sentence_transformers import SentenceTransformer
+    return SentenceTransformer(model_name)
 
+# -----------------------------
+# Funções de vetorizaçao
+# -----------------------------
 
-def build_vectorizer(
-    ngram_range: Tuple[int, int],
-    min_df,
-    max_df,
-    max_features: Optional[int],
-):
-    """Cria o TfidfVectorizer configurado para textos já normalizados."""
-    token_pattern = r"(?u)\b[\w\%\+\-]{2,}\b"  # mantém %, +, -
-    vect = TfidfVectorizer(
-        ngram_range=ngram_range,
-        min_df=min_df,
-        max_df=max_df,
-        max_features=max_features,
-        lowercase=False,  # já está minúsculo
-        norm="l2",
-        token_pattern=token_pattern,
-    )
-    return vect
+def _prepare_corpus(series: pd.Series) -> List[str]:
+    """Converte série em lista de strings limpando NaNs e listas."""
+    series = series.fillna("")
+    corpus = []
+    for val in series.tolist():
+        if isinstance(val, list):
+            corpus.append(" ".join(map(str, val)))
+        else:
+            corpus.append(str(val))
+    return corpus
 
+def create_bow_vectors(corpus: List[str]):
+    vectorizer = CountVectorizer(lowercase=True, min_df=2, max_df=0.95)
+    bow_matrix = vectorizer.fit_transform(corpus)
+    bow_features = vectorizer.get_feature_names_out()
+    return bow_matrix, bow_features
 
-def save_artifacts(
-    X,
-    vocab: dict,
-    field: str,
-    feature_names: List[str],
-    group_by: Optional[str],
-    df: pd.DataFrame,
-):
-    os.makedirs(OUT_DIR, exist_ok=True)
+def create_tfidf_vectors(corpus: List[str]):
+    vectorizer = TfidfVectorizer(lowercase=True, min_df=2, max_df=0.95)
+    tfidf_matrix = vectorizer.fit_transform(corpus)
+    tfidf_features = vectorizer.get_feature_names_out()
+    return tfidf_matrix, tfidf_features
 
-    # caminhos de saída
-    tfidf_mtx = os.path.join(OUT_DIR, f"tfidf_{field}.npz")
-    tfidf_voc = os.path.join(OUT_DIR, f"tfidf_vocab_{field}.json")
-    top_glob  = os.path.join(OUT_DIR, f"top_terms_global_{field}.csv")
-    feat_map  = os.path.join(OUT_DIR, f"feature_names_{field}.csv")
+def create_sbert_embeddings(corpus: List[str], model=None, model_name: str = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"):
+    if model is None:
+        model = _load_sbert(model_name)
+    embeddings = model.encode(corpus, normalize_embeddings=True)
+    return embeddings, model
 
-    # matriz
-    sparse.save_npz(tfidf_mtx, X)
+# -----------------------------
+# Similaridade e busca
+# -----------------------------
 
-    # vocabulário
-    with open(tfidf_voc, "w", encoding="utf-8") as f:
-        json.dump(vocab, f, ensure_ascii=False)
+def calculate_similarity_matrix(method: str,
+                                bow_matrix=None,
+                                tfidf_matrix=None,
+                                sbert_embeddings=None):
+    method = method.lower()
+    if method == "bow" and bow_matrix is not None:
+        return cosine_similarity(bow_matrix)
+    elif method == "tfidf" and tfidf_matrix is not None:
+        return cosine_similarity(tfidf_matrix)
+    elif method == "sbert" and sbert_embeddings is not None:
+        return cosine_similarity(sbert_embeddings)
+    else:
+        raise ValueError(f"Método '{method}' não disponível ou matriz não calculada.")
 
-    # top termos global
-    term_sums = np.asarray(X.sum(axis=0)).ravel()
-    order = np.argsort(term_sums)[::-1]
-    top_terms = pd.DataFrame({
-        "termo": [feature_names[i] for i in order],
-        "tfidf_sum": [float(term_sums[i]) for i in order],
-    })
-    top_terms.head(1000).to_csv(top_glob, index=False, encoding="utf-8")
+def search_similar_documents(query: str, embeddings: np.ndarray, model) -> np.ndarray:
+    """Retorna vetor de similaridade do 'query' contra todos os documentos."""
+    qv = model.encode([query], normalize_embeddings=True)
+    sims = cosine_similarity(qv, embeddings)[0]
+    return sims
 
-    # mapa de índices -> termos
-    pd.DataFrame({
-        "index": list(range(len(feature_names))),
-        "termo": feature_names
-    }).to_csv(feat_map, index=False, encoding="utf-8")
+# -----------------------------
+# Salvamento
+# -----------------------------
 
-    # top termos por grupo
-    if group_by and group_by in df.columns:
-        groups = df[group_by].fillna("N/A").astype(str).values
-        rows = []
-        for g in np.unique(groups):
-            mask = (groups == g)
-            if mask.sum() < 2:
-                continue
-            Xg = X[mask]
-            sums = np.asarray(Xg.sum(axis=0)).ravel()
-            idx = np.argsort(sums)[::-1][:200]
-            rows += [(g, feature_names[i], float(sums[i])) for i in idx]
-        if rows:
-            out_grp = os.path.join(OUT_DIR, f"top_terms_by_{group_by}_{field}.csv")
-            pd.DataFrame(rows, columns=[group_by, "termo", "tfidf_sum"]).to_csv(
-                out_grp, index=False, encoding="utf-8"
-            )
-            print(f"[OK] Top termos por {group_by} salvo em: {out_grp}")
+def save_vectors(output_dir: Path,
+                 bow_matrix=None, bow_features: Optional[np.ndarray]=None,
+                 tfidf_matrix=None, tfidf_features: Optional[np.ndarray]=None,
+                 sbert_embeddings=None):
+    output_dir.mkdir(parents=True, exist_ok=True)
 
-    print(f"[OK] TF-IDF salvo em: {tfidf_mtx}")
-    print(f"[OK] Vocabulário salvo em: {tfidf_voc}")
-    print(f"[OK] Top termos global salvo em: {top_glob}")
-    print(f"[OK] Mapa de termos salvo em: {feat_map}")
+    if bow_matrix is not None:
+        bow_df = pd.DataFrame.sparse.from_spmatrix(bow_matrix, columns=bow_features)
+        bow_df.to_csv(output_dir / "bow_matrix.csv", index=False, sep=";")
 
+    if tfidf_matrix is not None:
+        tfidf_df = pd.DataFrame.sparse.from_spmatrix(tfidf_matrix, columns=tfidf_features)
+        tfidf_df.to_csv(output_dir / "tfidf_matrix.csv", index=False, sep=";")
+
+    if sbert_embeddings is not None:
+        np.save(output_dir / "sbert_embeddings.npy", sbert_embeddings)
+        sbert_df = pd.DataFrame(sbert_embeddings)
+        sbert_df.to_csv(output_dir / "sbert_embeddings.csv", index=False, sep=";")
+
+# -----------------------------
+# CLI / Execução
+# -----------------------------
 
 def main():
-    ap = argparse.ArgumentParser(description="Vectorização TF-IDF para itens do TibiaWiki (CSV pré-processado).")
-    ap.add_argument("--input", default=INPUT_CSV, help="Caminho do CSV pré-processado (default: data/items_info_preprocessed.csv)")
-    ap.add_argument("--text-field", default="lemmas", help="Coluna de texto a vetorizar (ex.: lemmas, stems, tokens_sem_stopwords, texto_normalizado)")
-    ap.add_argument("--group-by", default=None, help="Coluna para agrupar e extrair top termos por grupo (ex.: Voc, Tipo de Dano). Opcional.")
-    ap.add_argument("--ngram-min", type=int, default=1, help="n em n-gram mínimo (default: 1)")
-    ap.add_argument("--ngram-max", type=int, default=2, help="n em n-gram máximo (default: 2)")
-    ap.add_argument("--min-df", default=2, type=float, help="min_df (int ou float em proporção). Default: 2")
-    ap.add_argument("--max-df", default=0.95, type=float, help="max_df (float em proporção ou int). Default: 0.95")
-    ap.add_argument("--max-features", default=None, type=int, help="Limite de features. Opcional.")
-    args = ap.parse_args()
+    parser = argparse.ArgumentParser(description="Vectorizador funcional para itens do TibiaWiki.")
+    parser.add_argument("--dataset", type=str, default="data/items_info_preprocessed.csv",
+                        help="Caminho do CSV de itens (padrão: data/items_info_preprocessed.csv)")
+    parser.add_argument("--text-col", type=str, default="lemmas",
+                        help="Coluna de texto a usar (padrão: lemmas; fallback automático para texto_normalizado)")
+    parser.add_argument("--output-dir", type=str, default="data/data_vectorizer",
+                        help="Diretório de saída (padrão: data/data_vectorizer)")
+    parser.add_argument("--run", nargs="+", choices=["bow", "tfidf", "sbert"], default=["bow","tfidf","sbert"],
+                        help="Quais representações calcular (padrão: todas)")
+    parser.add_argument("--similarity", choices=["bow","tfidf","sbert"], default=None,
+                        help="Se definido, calcula e salva a matriz de similaridade do método escolhido em CSV")
+    parser.add_argument("--query", type=str, default=None,
+                        help="Se definido, procura itens semelhantes usando SBERT e imprime top-k")
+    parser.add_argument("--top-k", type=int, default=5,
+                        help="Quantidade de resultados para a busca (padrão: 5)")
+    parser.add_argument("--model-name", type=str, default="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+                        help="Nome do modelo SBERT (padrão: paraphrase-multilingual-MiniLM-L12-v2)")
 
-    if not os.path.exists(args.input):
-        raise FileNotFoundError(f"Não encontrei {args.input}. Rode antes o preprocess_csv.py")
+    args = parser.parse_args()
 
-    os.makedirs(OUT_DIR, exist_ok=True)
+    dataset_path = Path(args.dataset)
+    output_dir = Path(args.output_dir)
 
-    df = pd.read_csv(args.input, dtype=str).fillna("")
+    if not dataset_path.exists():
+        # Tenta no diretório atual e no /mnt/data
+        alt1 = Path("/mnt/data") / dataset_path.name
+        if alt1.exists():
+            dataset_path = alt1
+        else:
+            raise FileNotFoundError(f"Dataset não encontrado: {args.dataset}")
 
-    if args.text_field not in df.columns:
-        text_like = [c for c in ["lemmas", "stems", "tokens_sem_stopwords", "texto_normalizado", "tokens", "texto_unificado"] if c in df.columns]
-        raise ValueError(
-            f"Coluna '{args.text_field}' não encontrada no CSV. "
-            f"Tente uma destas: {text_like}"
-        )
+    df = pd.read_csv(dataset_path)
 
-    texts = df[args.text_field].astype(str).tolist()
+    # Escolha da coluna de texto
+    text_col = args.text_col if args.text_col in df.columns else None
+    if text_col is None:
+        if "lemmas" in df.columns:
+            text_col = "lemmas"
+        elif "texto_normalizado" in df.columns:
+            text_col = "texto_normalizado"
+        else:
+            raise ValueError("Não encontrei as colunas 'lemmas' ou 'texto_normalizado' no dataset.")
 
-    vect = build_vectorizer(
-        ngram_range=(args.ngram_min, args.ngram_max),
-        min_df=args.min_df,
-        max_df=args.max_df,
-        max_features=args.max_features,
-    )
+    corpus = _prepare_corpus(df[text_col])
 
-    X = vect.fit_transform(texts)
-    vocab = vect.vocabulary_
-    feature_names = list(vect.get_feature_names_out())
+    # Vetores
+    bow_matrix = tfidf_matrix = sbert_embeddings = None
+    bow_features = tfidf_features = None
+    sbert_model = None
 
-    save_artifacts(
-        X=X,
-        vocab=vocab,
-        field=args.text_field,
-        feature_names=feature_names,
-        group_by=args.group_by,
-        df=df,
-    )
+    if "bow" in args.run:
+        bow_matrix, bow_features = create_bow_vectors(corpus)
 
-    print(f"[OK] Linhas: {X.shape[0]} | Features: {X.shape[1]}")
-    if args.group_by and args.group_by not in df.columns:
-        print(f"[WARN] Coluna '{args.group_by}' não existe no CSV. Estatística por grupo não foi gerada.")
+    if "tfidf" in args.run:
+        tfidf_matrix, tfidf_features = create_tfidf_vectors(corpus)
 
+    if "sbert" in args.run or args.query is not None or args.similarity == "sbert":
+        sbert_embeddings, sbert_model = create_sbert_embeddings(corpus, model=None, model_name=args.model_name)
+
+    # Similaridade opcional
+    if args.similarity:
+        sim = calculate_similarity_matrix(method=args.similarity,
+                                          bow_matrix=bow_matrix,
+                                          tfidf_matrix=tfidf_matrix,
+                                          sbert_embeddings=sbert_embeddings)
+        # Salva matriz de similaridade como CSV (pode ser grande)
+        sim_df = pd.DataFrame(sim)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        sim_df.to_csv(output_dir / f"similarity_{args.similarity}.csv", index=False, sep=";")
+
+    # Busca opcional (SBERT)
+    if args.query is not None:
+        if sbert_embeddings is None or sbert_model is None:
+            sbert_embeddings, sbert_model = create_sbert_embeddings(corpus, model=None, model_name=args.model_name)
+        sims = search_similar_documents(args.query, sbert_embeddings, sbert_model)
+        top_idx = np.argsort(sims)[::-1][:args.top_k]
+        results = [{"idx": int(i),
+                    "similarity": float(sims[i]),
+                    "Nome": df["Nome"].iloc[i] if "Nome" in df.columns else None,
+                    "url_origem": df["url_origem"].iloc[i] if "url_origem" in df.columns else None} for i in top_idx]
+        print(json.dumps(results, ensure_ascii=False, indent=2))
+
+    # Salvamento dos vetores
+    save_vectors(output_dir=output_dir,
+                 bow_matrix=bow_matrix, bow_features=bow_features,
+                 tfidf_matrix=tfidf_matrix, tfidf_features=tfidf_features,
+                 sbert_embeddings=sbert_embeddings)
+
+    # Também salva metadados úteis
+    meta = {
+        "dataset": dataset_path.as_posix(),
+        "text_col": text_col,
+        "rows": len(corpus),
+        "columns": list(df.columns),
+        "computed": args.run,
+        "similarity_saved_for": args.similarity,
+        "model_name": args.model_name
+    }
+    output_dir.mkdir(parents=True, exist_ok=True)
+    with open(output_dir / "metadata.json", "w", encoding="utf-8") as f:
+        json.dump(meta, f, ensure_ascii=False, indent=2)
+
+    print(f"[OK] Vetores salvos em: {output_dir}")
 
 if __name__ == "__main__":
     main()

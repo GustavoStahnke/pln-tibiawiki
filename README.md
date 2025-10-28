@@ -23,5 +23,6 @@ O projeto tem como objetivo **coletar, estruturar e analisar informações de it
 - Coleta de dados (Scraping): get_items_links.py 
 - Extração: get_tibiaitens_info.py
 - Pré-processamento: preprocess_csv.py
-- Vetorização (TF-IDF): vectorizer_items.py
-- Análise/Exploração: analyze_items.py
+- Vetorização (BoW, TF-IDF, SBERT): vectorizer_items.py
+- Análise/Exploração: analyze_items.py 
+- Classificação por recomendação (Itens por vocação): recommendation_items.py
