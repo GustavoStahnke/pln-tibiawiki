@@ -103,6 +103,20 @@ python vectorizer_items.py
 
 # (E) Analisar (clusters, PCA, similaridade → data/data_analyze_vectorizer/)
 python analyze_vectorizer_items.py
+
+# (F) Recomendar
+As recomendações são executadas pelas funções do `recommendation_items.py` e já estão
+**demonstradas** no final do `analyze_vectorizer_items.py`:
+
+- `recommend_items_by_name("Alicorn Quiver", df, vectors, top_k=5)`  
+- `search_items("arco mágico para paladin", df, vectors, top_k=10)`  
+- `recommend_substitute_items("Alicorn Quiver", df, vectors, top_k=5)`
+
+➡️ Para rodar **apenas** as recomendações (reusando os vetores já salvos em `data/data_vectorizer/`),
+basta editar esses exemplos no final de `analyze_vectorizer_items.py` e executar novamente o passo (E):
+```bash
+
+python analyze_vectorizer_items.py
 ```
 
 ### Exemplos de Uso (recomendações)
