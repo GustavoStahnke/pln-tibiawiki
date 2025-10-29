@@ -1,9 +1,24 @@
-numpy==1.26.4
-pandas==2.2.3
-scipy==1.13.1
-scikit-learn==1.5.2
-beautifulsoup4==4.12.3
-selenium==4.25.0
-nltk==3.9.1
+# ==== Core ====
+numpy>=1.26
+scipy>=1.11
+pandas>=2.0
+scikit-learn>=1.4
 spacy==3.7.5
 thinc==8.2.5
+
+# ==== NLP ====
+nltk>=3.9
+sentence-transformers>=2.6
+
+# ==== Scraping ====
+requests>=2.32
+beautifulsoup4>=4.12.3
+selenium>=4.22
+webdriver-manager>=4.0
+
+# ==== Visualization (opcional, para gráficos/wordcloud no relatório/EDA) ====
+matplotlib>=3.8
+wordcloud>=1.9
+
+# ==== Utilitários ====
+tqdm>=4.66
